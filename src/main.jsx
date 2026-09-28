@@ -41,6 +41,7 @@ function buildInsights(interviews) {
       confidenceTotal += interview.confidenceScore;
       confidenceCount += 1;
     }
+
     (Array.isArray(interview.rounds) ? interview.rounds : []).forEach((round) => {
       const topic = round.type?.trim() || 'General';
       const questions = round.questions || [];
@@ -69,6 +70,10 @@ function buildInsights(interviews) {
   return { topicRows, readiness, strongestTopic, weakestTopic, questionCount, answeredCount };
 }
 
+function countQuestions(interviews) {
+  return interviews.reduce((total, interview) => total + (Array.isArray(interview.rounds) ? interview.rounds.reduce((roundTotal, round) => roundTotal + (Array.isArray(round.questions) ? round.questions.length : 0), 0) : 0), 0);
+}
+
 function App() {
   const [theme, setTheme] = useState('dark');
   const [active, setActive] = useState('Overview');
@@ -83,6 +88,7 @@ function App() {
   const [showAuth, setShowAuth] = useState(() => !localStorage.getItem('prepjournal_token'));
   const [selectedInterview, setSelectedInterview] = useState(null);
   const [stats, setStats] = useState(null);
+  const [settings, setSettings] = useState({ emailUpdates: true, weeklyReview: true });
   const styling = useMemo(() => ({ theme, setTheme }), [theme]);
 
   useEffect(() => {
@@ -105,6 +111,7 @@ function App() {
     const matchesFilter = filter === 'All interviews' || item.result === filter || item.difficulty === filter;
     return matchesQuery && matchesFilter;
   });
+  const questionCount = countQuestions(interviews);
 
   const addInterview = (event) => {
     event.preventDefault();
@@ -140,7 +147,9 @@ function App() {
   };
 
   const saveInterviewDetails = (updated) => {
-    setInterviews((current) => current.map((item) => item.id === updated.id ? toInterviewCard(updated) : item));
+    const updatedCard = toInterviewCard(updated);
+    setInterviews((current) => current.map((item) => item.id === updatedCard.id ? updatedCard : item));
+    interviewApi.stats().then(({ data }) => setStats(data)).catch(() => {});
     setSelectedInterview(null);
     notify('Interview notes saved');
   };
@@ -168,15 +177,15 @@ function App() {
             <p className="nav-label">Workspace</p>
             {[
               [LayoutDashboard, 'Overview'], [BookOpen, 'My interviews'], [Target, 'Preparation'], [FileText, 'Question bank']
-            ].map(([Icon, label]) => <button className={`nav-item ${active === label ? 'active' : ''}`} onClick={() => { setActive(label); setMobileNav(false); }} key={label}><Icon size={17} />{label}{label === 'Question bank' && <span className="nav-count">24</span>}</button>)}
+            ].map(([Icon, label]) => <button className={`nav-item ${active === label ? 'active' : ''}`} onClick={() => { setActive(label); setMobileNav(false); }} key={label}><Icon size={17} />{label}{label === 'Question bank' && <span className="nav-count">{questionCount}</span>}</button>)}
             <p className="nav-label nav-spacer">Manage</p>
-            {[[Settings, 'Settings'], [CircleHelp, 'Help center']].map(([Icon, label]) => <button className="nav-item" key={label}><Icon size={17} />{label}</button>)}
+            {[[Settings, 'Settings'], [CircleHelp, 'Help center']].map(([Icon, label]) => <button className={`nav-item ${active === label ? 'active' : ''}`} onClick={() => { setActive(label); setMobileNav(false); }} key={label}><Icon size={17} />{label}</button>)}
           </nav>
           <div className="sidebar-footer"><div className="upgrade-card"><Sparkles size={18} /><strong>Make every interview count.</strong><span>Build a stronger signal with smart review prompts.</span><button onClick={() => notify('Prep plan coming soon')}>Explore Prep plan <ArrowUpRight size={14} /></button></div><button className="nav-item logout" onClick={user ? signOut : () => setShowAuth(true)}><LogOut size={17} />{user ? 'Sign out' : 'Sign in'}</button></div>
         </aside>
         <main className="main-content">
           <header className="topbar"><button className="mobile-menu" onClick={() => setMobileNav(!mobileNav)}><Menu size={20} /></button><div className="breadcrumbs"><span>Workspace</span><ChevronRight size={14} /><strong>{active}</strong></div><div className="top-actions"><button className="icon-button" onClick={() => notify('You are all caught up')}><Bell size={18} /><i /></button><button className="profile-button" onClick={() => notify(user.email)}><span className="avatar small">{initials(user.name)}</span><ChevronDown size={14} /></button></div></header>
-          {active === 'Overview' || active === 'My interviews' ? <Dashboard {...{filtered, query, setQuery, filter, setFilter, setShowModal, notify, active, setActive, interviews, setSelectedInterview, stats, user}} /> : active === 'Preparation' ? <PreparationPage interviews={interviews} notify={notify} /> : active === 'Question bank' ? <QuestionBank interviews={interviews} setSelectedInterview={setSelectedInterview} /> : <EmptySection title={active} notify={notify} />}
+          {active === 'Overview' || active === 'My interviews' ? <Dashboard {...{filtered, query, setQuery, filter, setFilter, setShowModal, notify, active, setActive, interviews, setSelectedInterview, stats, user}} /> : active === 'Preparation' ? <PreparationPage interviews={interviews} notify={notify} /> : active === 'Question bank' ? <QuestionBank interviews={interviews} setSelectedInterview={setSelectedInterview} /> : active === 'Settings' ? <SettingsPage user={user} settings={settings} setSettings={setSettings} notify={notify} /> : active === 'Help center' ? <HelpCenter /> : <EmptySection title={active} notify={notify} />}
         </main>
         {showModal && <AddModal onClose={() => setShowModal(false)} onSubmit={addInterview} />}
         {showAuth && <AuthModal mode={authMode} setMode={setAuthMode} onClose={() => setShowAuth(false)} onSuccess={handleAuth} onError={notify} />}
@@ -211,6 +220,13 @@ function Dashboard({ filtered, query, setQuery, filter, setFilter, setShowModal,
 function StatCard({ icon: Icon, label, value, meta, positive }) { return <div className="stat-card"><div className="stat-icon"><Icon size={17} /></div><span className="stat-label">{label}</span><strong className="stat-value">{value}</strong><small className={positive ? 'positive' : ''}>{positive && <TrendingUp size={12} />}{meta}</small></div>; }
 function InterviewRow({ item, notify, onOpen }) { return <div className="interview-row" onClick={onOpen}><div className="company-logo" style={{ background: item.color, color: '#101110' }}>{item.logo}</div><div className="interview-main"><strong>{item.company}</strong><span>{item.role}</span></div><div className="interview-date">{item.date}</div><div className="rounds"><Code2 size={14} />{item.roundCount ?? item.rounds ?? 0} rounds</div><span className={`result ${item.result.toLowerCase()}`}>{item.result}</span><button className="row-menu" onClick={(e) => { e.stopPropagation(); onOpen(); }}><Pencil size={15} /></button></div>; }
 function EmptySection({ title, notify }) { return <div className="empty-section"><div className="empty-illustration"><BookOpen size={30} /></div><h1>{title}</h1><p>This section is ready for your next preparation session.</p><button className="primary-button" onClick={() => notify('This feature is coming soon')}><Plus size={18} />Get started</button></div>; }
+function SettingsPage({ user, settings, setSettings, notify }) {
+  const toggle = (key) => setSettings((current) => ({ ...current, [key]: !current[key] }));
+  return <div className="page"><section className="hero-row"><div><p className="eyebrow"><span className="pulse" /> Workspace settings</p><h1>Make it yours<span className="lime">.</span></h1><p className="hero-copy">Manage your profile and preparation preferences.</p></div></section><section className="settings-grid"><section className="panel settings-card"><div className="panel-heading"><div><h2>Profile</h2><p>Your account details</p></div><UserRound size={18} className="lime-icon" /></div><div className="settings-profile"><div className="avatar large">{initials(user.name)}</div><div><strong>{user.name}</strong><span>{user.email}</span></div></div></section><section className="panel settings-card"><div className="panel-heading"><div><h2>Preferences</h2><p>Choose how PrepJournal supports you</p></div><Settings size={18} className="lime-icon" /></div><button className="setting-toggle" onClick={() => toggle('emailUpdates')}><span><strong>Preparation reminders</strong><small>Get occasional prompts to review your notes.</small></span><i className={settings.emailUpdates ? 'on' : ''} /></button><button className="setting-toggle" onClick={() => toggle('weeklyReview')}><span><strong>Weekly review</strong><small>Keep your interview progress visible each week.</small></span><i className={settings.weeklyReview ? 'on' : ''} /></button><button className="primary-button settings-save" onClick={() => notify('Preferences saved')}>Save preferences</button></section></section></div>;
+}
+function HelpCenter() {
+  return <div className="page"><section className="hero-row"><div><p className="eyebrow"><span className="pulse" /> Help center</p><h1>Build a better interview loop<span className="lime">.</span></h1><p className="hero-copy">A quick guide to getting the most from PrepJournal.</p></div></section><section className="help-grid">{[['How should I log an interview?', 'Start with the company and role, then open the interview to add rounds, questions, answers, and reflections.'], ['How does readiness work?', 'PrepJournal combines your confidence scores with answered-question coverage to estimate how ready you are for the next interview.'], ['Can I edit or delete notes?', 'Yes. Select any interview from your dashboard to update its result, score, reflection, rounds, or questions.']].map(([title, copy]) => <article className="panel help-card" key={title}><CircleHelp size={18} className="lime-icon" /><h2>{title}</h2><p>{copy}</p></article>)}</section></div>;
+}
 function PreparationPage({ interviews, notify }) {
   const hard = interviews.filter((item) => item.difficulty === 'Hard');
   return <div className="page"><section className="hero-row"><div><p className="eyebrow"><span className="pulse" /> Preparation plan</p><h1>Prepare with intent<span className="lime">.</span></h1><p className="hero-copy">Turn your interview history into your next study session.</p></div><button className="primary-button" onClick={() => notify('Prep session marked as started')}><Zap size={16} />Start session</button></section><div className="prep-grid"><section className="panel prep-card"><div className="panel-heading"><div><h2>Recommended focus</h2><p>Based on your hardest interviews</p></div><Target size={18} className="lime-icon" /></div>{hard.length ? hard.slice(0, 3).map((item) => <div className="prep-item" key={item.id}><div className="company-logo">{item.logo}</div><div><strong>{item.company} · {item.role}</strong><span>Review {item.roundCount ?? item.rounds ?? 0} rounds and revisit your answers</span></div><ChevronRight size={16} /></div>) : <div className="empty-state"><Target size={24} /><strong>No focus areas yet</strong><span>Add a hard interview to generate a plan.</span></div>}</section><section className="panel prep-card"><div className="panel-heading"><div><h2>Daily rhythm</h2><p>Small, consistent improvements</p></div><Clock3 size={18} className="lime-icon" /></div>{['Review one answer', 'Practice a system design prompt', 'Write one reflection'].map((task) => <div className="check-item" key={task}><span className="check-box" />{task}</div>)}</section></div></div>;
@@ -229,12 +245,12 @@ function InterviewDetailModal({ interview, onClose, onSave, onDelete, onError })
   const updateRound = (roundIndex, changes) => setRounds((current) => current.map((round, index) => index === roundIndex ? { ...round, ...changes } : round));
   const updateQuestion = (roundIndex, questionIndex, changes) => setRounds((current) => current.map((round, index) => index === roundIndex ? { ...round, questions: round.questions.map((question, qIndex) => qIndex === questionIndex ? { ...question, ...changes } : question) } : round));
   const save = () => {
-    if (rounds.some((round) => !round.name.trim() || (round.questions || []).some((question) => !question.prompt.trim()))) {
+    if (rounds.some((round) => !String(round.name || '').trim() || (round.questions || []).some((question) => !String(question.prompt || '').trim()))) {
       onError('Each round and question needs a name before saving');
       return;
     }
     setSaving(true);
-    interviewApi.update(interview.id, { rounds, result, difficulty, confidenceScore: score === '' ? undefined : Number(score), reflection }).then(({ data }) => onSave(data.interview)).catch((error) => onError(error.response?.data?.message || 'Could not save interview notes')).finally(() => setSaving(false));
+    interviewApi.update(interview.id, { rounds, result, difficulty, confidenceScore: score === '' ? undefined : Number(score), reflection }).then(({ data }) => onSave(data.interview)).catch((error) => onError(error.response?.data?.errors?.join(', ') || error.response?.data?.message || 'Could not save interview notes')).finally(() => setSaving(false));
   };
   return <div className="modal-backdrop" onMouseDown={onClose}><div className="modal detail-modal" onMouseDown={(event) => event.stopPropagation()}><div className="modal-header"><div><p className="eyebrow">{interview.company} · {interview.role}</p><h2>Interview notes</h2></div><button className="icon-button" onClick={onClose}><X size={18} /></button></div><div className="detail-meta"><label>Result<select value={result} onChange={(event) => setResult(event.target.value)}><option>Pending</option><option>Advanced</option><option>Rejected</option><option>Offer</option></select></label><label>Difficulty<select value={difficulty} onChange={(event) => setDifficulty(event.target.value)}><option>Easy</option><option>Medium</option><option>Hard</option></select></label><label>Confidence<input type="number" min="0" max="10" step=".1" value={score} onChange={(event) => setScore(event.target.value)} placeholder="0–10" /></label></div><label className="detail-reflection">Reflection<textarea value={reflection} onChange={(event) => setReflection(event.target.value)} rows="3" placeholder="What did you learn?" /></label><div className="round-editor">{rounds.map((round, roundIndex) => <section className="round-card" key={round._id || roundIndex}><div className="round-title"><input value={round.name} onChange={(event) => updateRound(roundIndex, { name: event.target.value })} /><button className="text-button" onClick={() => setRounds((current) => current.filter((_, index) => index !== roundIndex))}><Trash2 size={14} />Remove</button></div><input className="round-type" value={round.type || ''} onChange={(event) => updateRound(roundIndex, { type: event.target.value })} placeholder="Round type, e.g. System design" />{(round.questions || []).map((question, questionIndex) => <div className="question-card" key={question._id || questionIndex}><div className="question-number">Q{questionIndex + 1}</div><div className="question-fields"><textarea value={question.prompt} onChange={(event) => updateQuestion(roundIndex, questionIndex, { prompt: event.target.value })} placeholder="Question asked" rows="2" /><textarea value={question.answer || ''} onChange={(event) => updateQuestion(roundIndex, questionIndex, { answer: event.target.value })} placeholder="How did you answer?" rows="2" /></div><button className="row-menu" onClick={() => updateRound(roundIndex, { questions: round.questions.filter((_, index) => index !== questionIndex) })}><Trash2 size={14} /></button></div>)}<button className="add-question" onClick={() => updateRound(roundIndex, { questions: [...(round.questions || []), { prompt: '', answer: '', notes: '' }] })}><Plus size={14} />Add question</button></section>)}<button className="secondary-button add-round" onClick={() => setRounds((current) => [...current, { name: `Round ${current.length + 1}`, type: 'Technical', notes: '', questions: [] }])}><Plus size={15} />Add interview round</button></div><div className="detail-actions"><button className="danger-button" onClick={() => onDelete(interview.id)}><Trash2 size={14} />Delete interview</button><button className="primary-button" disabled={saving} onClick={save}>{saving ? 'Saving...' : 'Save notes'} <ArrowUpRight size={16} /></button></div></div></div>;
 }
